@@ -1,0 +1,305 @@
+# ============================================
+# Import Libraries
+# ============================================
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
+
+
+# ============================================
+# For date handling
+# ============================================
+from datetime import datetime
+
+
+# ============================================
+# Set plot style for better visualization
+# ============================================
+sns.set_style("whitegrid")
+plt.rcParams['figure.figsize'] = (6, 6)
+
+
+# ============================================
+# Load Dataset
+# ============================================
+df = pd.read_csv(r"C:\Users\hp\Documents\msc cybersecurity_data science\Internship\Minor project\YES Bank\data_YesBank_StockPrices.csv")
+
+
+# ============================================
+# Dataset First Look
+# ============================================
+print("First 5 rows of dataset:")
+df.head()
+
+# ============================================
+# Dataset Rows & Columns count
+# ============================================
+df.shape
+
+
+# ============================================
+# Dataset Info
+# ============================================
+df.info()
+
+
+# ============================================
+# Dataset cleaning
+# ============================================
+# Convert Date to datetime format
+# The dates are in format "Jul-05" which means July 2005
+def convert_date(date_str):
+    # Split the date string
+    month, year = date_str.split('-')
+    # Convert month name to number
+    month_num = datetime.strptime(month, '%b').month
+    # Create full year (add 2000)
+    full_year = 2000 + int(year)
+    return datetime(full_year, month_num, 1)
+
+# Apply conversion
+df['Date'] = df['Date'].apply(convert_date)
+df['Year'] = df['Date'].dt.year
+df['Month'] = df['Date'].dt.month
+df['Month_Name'] = df['Date'].dt.strftime('%b')
+
+# Sort by date
+df = df.sort_values('Date')
+
+print("Data after preprocessing:")
+df.head()
+
+
+# ============================================
+# Missing Values/Null Values Count
+# ============================================
+print("Missing Values:")
+print(df.isnull().sum())
+
+
+# ============================================
+# Dataset Columns
+# ============================================
+print("\nColumn Info:")
+df.info()
+
+
+# ============================================
+# Dataset Describe
+# ============================================
+df.describe()
+
+# ============================================
+# Check Unique Values for each variable.
+# ============================================
+for col in df.columns:
+    print(f"{col}: {df[col].nunique()} unique values")
+    if df[col].nunique() < 20:  # Show values for categorical/limited variables
+        print(f"  Values: {df[col].unique()}")
+    print()
+
+
+
+# Calculate daily returns
+df['Daily_Return'] = df['Close'].pct_change() * 100
+
+# Calculate volatility (rolling 6-month standard deviation)
+df['Volatility'] = df['Daily_Return'].rolling(window=6).std()
+
+# Price range (High - Low)
+df['Price_Range'] = df['High'] - df['Low']
+
+# Gap (Open - Previous Close)
+df['Gap'] = df['Open'] - df['Close'].shift(1)
+
+print("Descriptive Statistics of Stock Data:")
+df[['Open', 'High', 'Low', 'Close', 'Daily_Return']].describe()
+
+
+# ============================================
+# Chart - 1 Box plot of price variables
+# ============================================
+plt.figure(figsize=(6, 6))
+price_columns = ['Open', 'High', 'Low', 'Close']
+df[price_columns].boxplot()
+plt.title('Box Plot of Yes Bank Stock Prices', fontsize=16)
+plt.ylabel('Price (₹)', fontsize=12)
+plt.show()
+
+
+# ============================================
+# Chart - 2 Distribution of Daily Returns
+# ============================================
+plt.figure(figsize=(6, 6))
+plt.hist(df['Daily_Return'].dropna(), bins=50, edgecolor='black', alpha=0.7, color='orange')
+plt.title('Distribution of Daily Returns (%)', fontsize=16)
+plt.xlabel('Daily Return (%)', fontsize=12)
+plt.ylabel('Frequency', fontsize=12)
+plt.axvline(0, color='red', linestyle='--', label='Zero Return')
+plt.legend()
+plt.show()
+
+
+# ============================================
+# Chart - 3 Histogram of Close Prices
+# ============================================
+plt.figure(figsize=(6, 6))
+plt.hist(df['Close'], bins=50, edgecolor='black', alpha=0.7)
+plt.title('Distribution of Yes Bank Closing Prices', fontsize=16)
+plt.xlabel('Closing Price (₹)', fontsize=12)
+plt.ylabel('Frequency', fontsize=12)
+plt.axvline(df['Close'].mean(), color='red', linestyle='--', label=f'Mean: ₹{df["Close"].mean():.2f}')
+plt.axvline(df['Close'].median(), color='green', linestyle='--', label=f'Median: ₹{df["Close"].median():.2f}')
+plt.legend()
+plt.show()
+
+
+# ============================================
+# Chart - 4 Relationship between Open and Close
+# ============================================
+plt.figure(figsize=(6, 6))
+plt.scatter(df['Open'], df['Close'], alpha=0.5, color='blue')
+plt.plot([df['Open'].min(), df['Open'].max()], [df['Open'].min(), df['Open'].max()], 'r--', label='Perfect Correlation')
+plt.title('Open Price vs Close Price', fontsize=16)
+plt.xlabel('Open Price (₹)', fontsize=12)
+plt.ylabel('Close Price (₹)', fontsize=12)
+plt.legend()
+plt.show()
+
+
+# ============================================
+# Chart - 5 Volatility vs Price level
+# ============================================
+plt.figure(figsize=(6, 6))
+plt.scatter(df['Close'], df['Volatility'], alpha=0.5, c='red')
+plt.title('Volatility vs Price Level', fontsize=16)
+plt.xlabel('Closing Price (₹)', fontsize=12)
+plt.ylabel('6-Month Volatility (%)', fontsize=12)
+plt.show()
+
+
+# ============================================
+# Chart - 6 Monthly returns distribution
+# ============================================
+plt.figure(figsize=(6, 6))
+df.boxplot(column='Daily_Return', by='Month_Name')
+plt.title('Daily Returns Distribution by Month', fontsize=16)
+plt.suptitle('')  # Remove automatic title
+plt.xlabel('Month', fontsize=12)
+plt.ylabel('Daily Return (%)', fontsize=12)
+plt.axhline(y=0, color='red', linestyle='--', linewidth=0.5)
+plt.show()
+
+
+
+# ============================================
+# Chart - 7 Yearly average prices
+# ============================================
+yearly_avg = df.groupby('Year')[['Open', 'High', 'Low', 'Close']].mean()
+yearly_avg.plot(kind='bar', figsize=(8, 6))
+plt.title('Average Stock Prices by Year', fontsize=16)
+plt.xlabel('Year', fontsize=12)
+plt.ylabel('Average Price (₹)', fontsize=12)
+plt.legend()
+plt.show()
+
+
+
+# ============================================
+# Chart - 8 Gap vs Daily return
+# ============================================
+plt.figure(figsize=(8, 8))
+plt.scatter(df['Gap'], df['Daily_Return'], alpha=0.5, color='coral')
+plt.title('Opening Gap vs Daily Return', fontsize=16)
+plt.xlabel('Opening Gap (₹)', fontsize=12)
+plt.ylabel('Daily Return (%)', fontsize=12)
+plt.axhline(y=0, color='black', linestyle='-', linewidth=0.5)
+plt.axvline(x=0, color='black', linestyle='-', linewidth=0.5)
+plt.show()
+
+
+# ============================================
+# Chart - 9 Price range vs Close price
+# ============================================
+plt.figure(figsize=(8, 8))
+plt.scatter(df['Close'], df['Price_Range'], alpha=0.5, color='green')
+plt.title('Price Range vs Closing Price', fontsize=16)
+plt.xlabel('Closing Price (₹)', fontsize=12)
+plt.ylabel('Price Range (High - Low) (₹)', fontsize=12)
+plt.show()
+
+
+# ============================================
+# Chart - 10 Closing Price trend
+# ============================================
+plt.figure(figsize=(8, 6))
+plt.plot(df['Date'], df['Close'], color='blue', linewidth=1.5)
+plt.title('Yes Bank Stock Price Trend (2005-2020)', fontsize=16)
+plt.xlabel('Year', fontsize=12)
+plt.ylabel('Closing Price (₹)', fontsize=12)
+plt.grid(True, alpha=0.3)
+plt.show()
+
+
+# ============================================
+# Chart - 11 Price range (High - Low)
+# ============================================
+plt.figure(figsize=(8, 6))
+plt.fill_between(df['Date'], df['Low'], df['High'], alpha=0.3, color='blue')
+plt.plot(df['Date'], df['Close'], color='blue', linewidth=1, label='Close Price')
+plt.title('Yes Bank Price Range (High-Low) Over Time', fontsize=16)
+plt.xlabel('Year', fontsize=12)
+plt.ylabel('Price (₹)', fontsize=12)
+plt.legend()
+plt.show()
+
+
+# ============================================
+# Chart - 12 Moving Averages
+# ============================================
+df['MA_6'] = df['Close'].rolling(window=6).mean()
+df['MA_12'] = df['Close'].rolling(window=12).mean()
+
+plt.figure(figsize=(15, 6))
+plt.plot(df['Date'], df['Close'], color='blue', label='Close Price', alpha=0.5)
+plt.plot(df['Date'], df['MA_6'], color='red', label='6-Month MA')
+plt.plot(df['Date'], df['MA_12'], color='green', label='12-Month MA')
+plt.title('Yes Bank Stock Price with Moving Averages', fontsize=16)
+plt.xlabel('Year', fontsize=20)
+plt.ylabel('Price (₹)', fontsize=12)
+plt.legend()
+plt.show()
+
+
+# ============================================
+# Chart - 13 Monthly average closing prices
+# ============================================
+monthly_avg = df.groupby('Month')['Close'].mean()
+plt.figure(figsize=(8, 6))
+monthly_avg.plot(kind='bar', color='coral')
+plt.title('Average Closing Price by Month', fontsize=16)
+plt.xlabel('Month', fontsize=12)
+plt.ylabel('Average Closing Price (₹)', fontsize=12)
+plt.xticks(rotation=0)
+plt.show()
+
+
+# ============================================
+# chart - 14 Correlation Heatmap visualization code
+# ============================================
+plt.figure(figsize=(10, 8))
+correlation_matrix = df[['Open', 'High', 'Low', 'Close', 'Price_Range', 'Daily_Return']].corr()
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', center=0, fmt='.3f')
+plt.title('Correlation Matrix of Stock Price Variables', fontsize=16)
+plt.show()
+
+
+# ============================================
+# chart - 15 Pair Plot visualization code
+# ============================================
+sns.pairplot(df[['Open', 'High', 'Low', 'Close', 'Daily_Return']].dropna())
+plt.suptitle('Pair Plot of Stock Price Variables', y=1.02, fontsize=16)
+plt.show()
