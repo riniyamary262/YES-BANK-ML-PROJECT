@@ -1,0 +1,1447 @@
+# ============================================
+# Import Libraries
+# ============================================
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import warnings
+warnings.filterwarnings('ignore')
+
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.tree import DecisionTreeRegressor
+
+import joblib
+
+# ============================================
+# Load Dataset
+# ============================================
+df = pd.read_csv(r"C:\Users\hp\Documents\msc cybersecurity_data science\Internship\Minor project\YES Bank\data_YesBank_StockPrices.csv")
+
+# ============================================
+# Dataset First Look
+# ============================================
+print("Dataset Information:")
+df.info()
+
+print("Statistical Summary:")
+df.describe()
+
+# ============================================
+# Dataset Rows & Columns count
+# ============================================
+print(f"Number of Rows: {df.shape[0]}")
+print(f"Number of Columns: {df.shape[1]}")
+print(f"Total Data Points: {df.shape[0] * df.shape[1]}")
+
+# ============================================
+# Dataset Info
+# ============================================
+print("Detailed Dataset Information:")
+df.info()
+
+print("Column Names:")
+print(df.columns.tolist())
+
+# ============================================
+# Dataset Duplicate Value Count
+# ============================================
+duplicates = df.duplicated().sum()
+print(f"Number of Duplicate Rows: {duplicates}")
+
+if duplicates == 0:
+    print("No duplicate values found in the dataset!")
+else:
+    print(f"Found {duplicates} duplicate rows.")
+
+
+# ============================================
+# Missing Values/Null Values Count
+# ============================================
+missing_values = df.isnull().sum()
+print("Missing Values Count:")
+print(missing_values)
+
+total_missing = missing_values.sum()
+print(f"\nTotal Missing Values: {total_missing}")
+
+if total_missing == 0:
+    print("No missing values found! Dataset is complete.")
+else:
+    print(f"Found {total_missing} missing values.")
+
+
+# ============================================
+# Visualizing the missing values
+# ============================================
+if total_missing > 0:
+    plt.figure(figsize=(8, 6))
+    missing_values[missing_values > 0].plot(kind='bar', color='orange', edgecolor='black')
+    plt.title('Missing Values by Column', fontsize=14, fontweight='bold')
+    plt.xlabel('Columns', fontsize=12)
+    plt.ylabel('Number of Missing Values', fontsize=12)
+    plt.xticks(rotation=45)
+    plt.grid(True, alpha=0.3)
+    
+    for i, v in enumerate(missing_values[missing_values > 0]):
+        plt.text(i, v + 0.5, str(v), ha='center', fontsize=10)
+    plt.tight_layout()
+    plt.show()
+else:
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.text(0.5, 0.5, 'NO MISSING VALUES FOUND!\nDataset is 100% Complete', 
+            ha='center', va='center', fontsize=16, color='green', fontweight='bold',
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen", alpha=0.5))
+    ax.set_title('Missing Values Check', fontsize=14, fontweight='bold')
+    ax.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+# ============================================
+# Dataset Columns
+# ============================================
+print("All Columns in Dataset:")
+for i, col in enumerate(df.columns, 1):
+    print(f"{i}. {col}")
+
+print(f"\nTotal Columns: {len(df.columns)}")
+
+# ============================================
+# Dataset Describe
+# ============================================
+print("Statistical Summary of All Columns:")
+print(df.describe())
+
+# ============================================
+# Check Unique Values for each variable.
+# ============================================
+print("UNIQUE VALUES FOR EACH VARIABLE")
+
+for col in df.columns:
+    unique_count = df[col].nunique()
+    print(f"\n{col}:")
+    print(f"  - Unique Values: {unique_count}")
+    if unique_count < 20:
+        print(f"  - Values: {df[col].unique()[:10]}...")
+    else:
+        print(f"  - Sample values: {df[col].head(3).tolist()}...")
+
+print("DATA WRANGLING")
+
+# Create a copy for ML
+ml_data = df.copy()
+
+# 1. Convert date to datetime
+from datetime import datetime
+
+def convert_date(date_str):
+    month, year = date_str.split('-')
+    month_num = datetime.strptime(month, '%b').month
+    full_year = 2000 + int(year)
+    return datetime(full_year, month_num, 1)
+
+ml_data['Date'] = ml_data['Date'].apply(convert_date)
+
+# 2. Extract year and month
+ml_data['Year'] = ml_data['Date'].dt.year
+ml_data['Month'] = ml_data['Date'].dt.month
+ml_data['Month_Name'] = ml_data['Date'].dt.strftime('%b')
+
+# 3. Sort by date
+ml_data = ml_data.sort_values('Date').reset_index(drop=True)
+
+print("Date converted successfully!")
+print("Year and Month extracted!")
+print("Data sorted by date!")
+
+# 4. Create derived features
+ml_data['Daily_Return'] = ml_data['Close'].pct_change() * 100
+ml_data['Volatility'] = ml_data['Daily_Return'].rolling(window=6).std()
+ml_data['Price_Range'] = ml_data['High'] - ml_data['Low']
+ml_data['Gap'] = ml_data['Open'] - ml_data['Close'].shift(1)
+
+# 5. Create lag features
+for lag in [1, 2, 3, 6, 12]:
+    ml_data[f'Close_Lag_{lag}'] = ml_data['Close'].shift(lag)
+    ml_data[f'Open_Lag_{lag}'] = ml_data['Open'].shift(lag)
+    ml_data[f'High_Lag_{lag}'] = ml_data['High'].shift(lag)
+    ml_data[f'Low_Lag_{lag}'] = ml_data['Low'].shift(lag)
+
+# 6. Create moving averages
+for window in [3, 6, 12]:
+    ml_data[f'Close_MA_{window}'] = ml_data['Close'].rolling(window=window).mean()
+    ml_data[f'Close_Std_{window}'] = ml_data['Close'].rolling(window=window).std()
+    ml_data[f'Close_Min_{window}'] = ml_data['Close'].rolling(window=window).min()
+    ml_data[f'Close_Max_{window}'] = ml_data['Close'].rolling(window=window).max()
+
+# 7. Create price ratios
+ml_data['Open_Close_Ratio'] = ml_data['Open'] / ml_data['Close']
+ml_data['High_Low_Ratio'] = ml_data['High'] / ml_data['Low']
+
+# Remove rows with NaN values (from lag and rolling calculations)
+ml_data = ml_data.dropna()
+
+print(f"\n Data wrangling complete!")
+print(f"   - Total observations: {len(ml_data)}")
+print(f"   - Total features: {len(ml_data.columns)}")
+print(f"   - New features created: {len(ml_data.columns) - len(df.columns)}")
+
+
+# ==============================================================================================================================================
+#Data Vizualization, Storytelling & Experimenting with charts : Understand the relationships between variables
+# ==============================================================================================================================================
+
+# ============================================
+# Chart - 1 Box plot 
+# ============================================
+# Prepare data
+X = ml_data[['Open', 'High', 'Low', 'Close_Lag_1']]
+y = ml_data['Close']
+
+# Split data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train the model
+model = RandomForestRegressor(n_estimators=50, random_state=42)
+model.fit(X_train, y_train)
+
+feature_importance = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': model.feature_importances_
+}).sort_values('Importance', ascending=False)
+
+plt.figure(figsize=(8, 5))
+plt.barh(feature_importance['Feature'], feature_importance['Importance'], 
+         color='steelblue')
+plt.xlabel('Importance', fontsize=12)
+plt.title('Feature Importance for Price Prediction', fontsize=14, fontweight='bold')
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 2 Actual vs Predicted (Scatter)
+# ============================================
+X = ml_data[['Open', 'High', 'Low', 'Close_Lag_1']]
+y = ml_data['Close']
+
+# Split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train simple model
+model = RandomForestRegressor(n_estimators=50, random_state=42)
+model.fit(X_train, y_train)
+
+# Predict
+y_pred = model.predict(X_test)
+
+# Plot
+plt.figure(figsize=(8, 6))
+plt.scatter(y_test, y_pred, alpha=0.6, color='green')
+plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+plt.xlabel('Actual Price (₹)', fontsize=12)
+plt.ylabel('Predicted Price (₹)', fontsize=12)
+plt.title('Actual vs Predicted', fontsize=14, fontweight='bold')
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+from sklearn.metrics import r2_score
+
+
+# ============================================
+# Chart - 3 Moving Averages
+# ============================================
+if 'MA_3' not in ml_data.columns:
+    ml_data['MA_3'] = ml_data['Close'].rolling(window=3).mean()
+    print("Created MA_3 column")
+
+if 'MA_6' not in ml_data.columns:
+    ml_data['MA_6'] = ml_data['Close'].rolling(window=6).mean()
+    print("Created MA_6 column")
+
+ml_data['MA_3'] = ml_data['MA_3'].fillna(ml_data['Close'])
+ml_data['MA_6'] = ml_data['MA_6'].fillna(ml_data['Close'])
+
+plt.figure(figsize=(12, 5))
+
+plt.plot(ml_data['Date'], ml_data['Close'], label='Close Price', alpha=0.5)
+plt.plot(ml_data['Date'], ml_data['MA_3'], label='3-Month MA', linewidth=2)
+plt.plot(ml_data['Date'], ml_data['MA_6'], label='6-Month MA', linewidth=2)
+
+plt.title('Moving Averages', fontsize=14, fontweight='bold')
+plt.xlabel('Year', fontsize=12)
+plt.ylabel('Price (₹)', fontsize=12)
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 4 Previous Price vs Current Price
+# ============================================
+plt.figure(figsize=(8, 6))
+
+plt.scatter(ml_data['Close_Lag_1'], ml_data['Close'], alpha=0.5, color='teal')
+plt.xlabel('Previous Month Price (₹)', fontsize=12)
+plt.ylabel('Current Month Price (₹)', fontsize=12)
+plt.title('Previous Price vs Current Price', fontsize=14, fontweight='bold')
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 5 Average Price by Month
+# ============================================
+monthly_avg = ml_data.groupby('Month')['Close'].mean()
+
+plt.figure(figsize=(8, 5))
+monthly_avg.plot(kind='bar', color='coral', edgecolor='black')
+plt.title('Average Price by Month', fontsize=14, fontweight='bold')
+plt.xlabel('Month', fontsize=12)
+plt.ylabel('Average Price (₹)', fontsize=12)
+plt.xticks(rotation=0)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 6 Return vs Volatility
+# ============================================
+ml_data['Return'] = ml_data['Close'].pct_change() * 100  # in percentage
+
+ml_data['Volatility'] = ml_data['Return'].rolling(window=30).std()
+
+ml_data['Return'] = ml_data['Return'].fillna(0)
+ml_data['Volatility'] = ml_data['Volatility'].fillna(0)
+
+plt.figure(figsize=(8, 6))
+
+plt.scatter(ml_data['Volatility'], ml_data['Return'], alpha=0.5, color='red')
+plt.xlabel('Volatility (%)', fontsize=12)
+plt.ylabel('Monthly Return (%)', fontsize=12)
+plt.title('Return vs Volatility', fontsize=14, fontweight='bold')
+plt.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 7 6-Month Volatility Over Time
+# ============================================
+plt.figure(figsize=(12, 5))
+
+plt.plot(ml_data['Date'], ml_data['Volatility'], color='purple', linewidth=2)
+plt.title('6-Month Volatility Over Time', fontsize=14, fontweight='bold')
+plt.xlabel('Year', fontsize=12)
+plt.ylabel('Volatility (%)', fontsize=12)
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 8 Distribution of Monthly Returns
+# ============================================
+if 'Return' not in ml_data.columns:
+    ml_data['Return'] = ml_data['Close'].pct_change() * 100
+    ml_data['Return'] = ml_data['Return'].fillna(0)
+
+# Now your plot will work
+plt.figure(figsize=(8, 5))
+plt.hist(ml_data['Return'].dropna(), bins=30, edgecolor='black', 
+         alpha=0.7, color='orange')
+plt.axvline(0, color='red', linestyle='--', label='Zero Return')
+plt.xlabel('Monthly Return (%)', fontsize=12)
+plt.ylabel('Frequency', fontsize=12)
+plt.title('Distribution of Monthly Returns', fontsize=14, fontweight='bold')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 9 Price vs Trading Range
+# ============================================
+if 'Range' not in ml_data.columns:
+    ml_data['Range'] = ml_data['High'] - ml_data['Low']
+    print("✅ Created 'Range' column")
+
+# Now your plot will work
+plt.figure(figsize=(8, 6))
+plt.scatter(ml_data['Close'], ml_data['Range'], alpha=0.5, color='green')
+plt.xlabel('Closing Price (₹)', fontsize=12)
+plt.ylabel('Price Range (High-Low) (₹)', fontsize=12)
+plt.title('Price vs Trading Range', fontsize=14, fontweight='bold')
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 10 Box Plot - Price Variables
+# ============================================
+plt.figure(figsize=(8, 6))
+
+price_cols = ['Open', 'High', 'Low', 'Close']
+ml_data[price_cols].boxplot()
+
+plt.title('Price Variables', fontsize=14, fontweight='bold')
+plt.ylabel('Price (₹)', fontsize=12)
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 11 Distribution of Closing Prices
+# ============================================
+plt.figure(figsize=(8, 5))
+
+plt.hist(ml_data['Close'], bins=30, edgecolor='black', alpha=0.7, color='skyblue')
+plt.axvline(ml_data['Close'].mean(), color='red', linestyle='--', 
+            label=f'Mean: ₹{ml_data["Close"].mean():.2f}')
+plt.axvline(ml_data['Close'].median(), color='green', linestyle='--', 
+            label=f'Median: ₹{ml_data["Close"].median():.2f}')
+
+plt.xlabel('Closing Price (₹)', fontsize=12)
+plt.ylabel('Frequency', fontsize=12)
+plt.title('Distribution of Closing Prices', fontsize=14, fontweight='bold')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 12 Yes Bank Stock Price Over Time
+# ============================================
+plt.figure(figsize=(12, 5))
+
+plt.plot(ml_data['Date'], ml_data['Close'], color='blue', linewidth=2)
+plt.title('Yes Bank Stock Price Over Time', fontsize=14, fontweight='bold')
+plt.xlabel('Year', fontsize=12)
+plt.ylabel('Closing Price (₹)', fontsize=12)
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# Chart - 13 Open Price vs Close Price
+# ============================================
+plt.figure(figsize=(8, 6))
+
+plt.scatter(ml_data['Open'], ml_data['Close'], alpha=0.6, color='blue')
+plt.plot([ml_data['Open'].min(), ml_data['Open'].max()], 
+         [ml_data['Open'].min(), ml_data['Open'].max()], 
+         'r--', label='Perfect correlation')
+
+plt.xlabel('Open Price (₹)', fontsize=12)
+plt.ylabel('Close Price (₹)', fontsize=12)
+plt.title('Open Price vs Close Price', fontsize=14, fontweight='bold')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+#chart - 14 Correlation Heatmap 
+# ============================================
+plt.figure(figsize=(8, 6))
+
+# Select only important columns
+simple_cols = ['Open', 'High', 'Low', 'Close', 'Return', 'Range', 'Volatility']
+corr = ml_data[simple_cols].corr()
+
+# Create heatmap
+sns.heatmap(corr, annot=True, cmap='coolwarm', center=0, fmt='.2f')
+plt.title('Simple Correlation Heatmap', fontsize=14, fontweight='bold')
+plt.tight_layout()
+plt.show()
+
+
+# ============================================
+# chart - 15 Pair Plot of stock price variables
+# ============================================
+
+pair_cols = ['Open', 'High', 'Low', 'Close', 'Daily_Return']
+
+# Create pair plot
+sns.pairplot(ml_data[pair_cols].dropna(), diag_kind='kde')
+plt.suptitle('Pair Plot of Stock Price Variables', y=1.02, fontsize=16, fontweight='bold')
+plt.show()
+
+
+# ============================================
+# HYPOTHESIS TEST 1: Previous Price vs Current Price
+# ============================================
+from scipy import stats
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Prepare data
+current_price = ml_data['Close']
+previous_price = ml_data['Close_Lag_1']
+
+# Remove any NaN values
+test_data = pd.DataFrame({
+    'Previous': previous_price,
+    'Current': current_price
+}).dropna()
+
+# Calculate correlation
+correlation, p_value = stats.pearsonr(test_data['Previous'], test_data['Current'])
+
+print("="*60)
+print("HYPOTHESIS TEST 1: Previous Price vs Current Price")
+print("="*60)
+
+print(f"\n SAMPLE SIZE: {len(test_data)} observations")
+print(f"\n TEST RESULTS:")
+print(f"Correlation Coefficient (r): {correlation:.4f}")
+print(f"P-Value: {p_value:.10f}")
+
+# Visualize
+plt.figure(figsize=(12, 5))
+
+plt.subplot(1, 2, 1)
+plt.scatter(test_data['Previous'], test_data['Current'], alpha=0.5, color='teal')
+plt.xlabel('Previous Month Price (₹)')
+plt.ylabel('Current Month Price (₹)')
+plt.title('Scatter Plot: Previous vs Current Price', fontsize=12, fontweight='bold')
+plt.grid(True, alpha=0.3)
+
+# Add regression line
+z = np.polyfit(test_data['Previous'], test_data['Current'], 1)
+p = np.poly1d(z)
+plt.plot(test_data['Previous'], p(test_data['Previous']), "r--", linewidth=2)
+
+plt.subplot(1, 2, 2)
+residuals = test_data['Current'] - p(test_data['Previous'])
+plt.hist(residuals, bins=20, edgecolor='black', alpha=0.7, color='skyblue')
+plt.axvline(x=0, color='red', linestyle='--')
+plt.xlabel('Residuals (₹)')
+plt.ylabel('Frequency')
+plt.title('Residual Distribution', fontsize=12, fontweight='bold')
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Decision
+alpha = 0.05
+print("\n" + "="*60)
+print("HYPOTHESIS TESTING DECISION")
+print("="*60)
+print(f"Significance Level (α): {alpha}")
+
+if p_value < alpha:
+    print("\n REJECT NULL HYPOTHESIS (H₀)")
+    print("There IS a significant relationship between previous and current prices.")
+    print(f"Correlation is {correlation:.4f} with p-value = {p_value:.10f}")
+else:
+    print("\n FAIL TO REJECT NULL HYPOTHESIS (H₀)")
+    print("There is NO significant relationship between previous and current prices.")
+
+
+# ============================================
+# HYPOTHESIS TEST 2: Volatility vs Returns
+# ============================================
+from scipy import stats
+
+print("="*60)
+print("HYPOTHESIS TEST 2: Volatility vs Returns")
+print("="*60)
+
+# Split data into high and low volatility groups
+median_volatility = ml_data['Volatility'].median()
+low_volatility = ml_data[ml_data['Volatility'] <= median_volatility]['Return'].dropna()
+high_volatility = ml_data[ml_data['Volatility'] > median_volatility]['Return'].dropna()
+
+print(f"\n📊 DATA SUMMARY:")
+print(f"Low Volatility Group: {len(low_volatility)} samples")
+print(f"  - Mean Return: {low_volatility.mean():.2f}%")
+print(f"  - Std Dev: {low_volatility.std():.2f}%")
+print(f"\nHigh Volatility Group: {len(high_volatility)} samples")
+print(f"  - Mean Return: {high_volatility.mean():.2f}%")
+print(f"  - Std Dev: {high_volatility.std():.2f}%")
+
+# Perform Levene's test for equal variances
+levene_stat, levene_p = stats.levene(low_volatility, high_volatility)
+print(f"\n Levene's Test (Equal Variance):")
+print(f"  Levene Statistic: {levene_stat:.4f}")
+print(f"  P-Value: {levene_p:.4f}")
+
+# Perform t-test (independent samples)
+if levene_p > 0.05:
+    # Equal variances assumed
+    t_stat, p_value = stats.ttest_ind(low_volatility, high_volatility, equal_var=True)
+    print("\n Using t-test with EQUAL variances assumption")
+else:
+    # Equal variances not assumed (Welch's t-test)
+    t_stat, p_value = stats.ttest_ind(low_volatility, high_volatility, equal_var=False)
+    print("\n Using Welch's t-test with UNEQUAL variances assumption")
+
+print(f"\n TEST RESULTS:")
+print(f"T-Statistic: {t_stat:.4f}")
+print(f"P-Value: {p_value:.6f}")
+
+# Visualize
+plt.figure(figsize=(12, 5))
+
+plt.subplot(1, 2, 1)
+data_to_plot = [low_volatility, high_volatility]
+plt.boxplot(data_to_plot, labels=['Low Volatility', 'High Volatility'], patch_artist=True)
+plt.ylabel('Returns (%)')
+plt.title('Returns by Volatility Level', fontsize=12, fontweight='bold')
+plt.grid(True, alpha=0.3)
+
+plt.subplot(1, 2, 2)
+plt.hist(low_volatility, bins=15, alpha=0.5, label='Low Volatility', color='green', edgecolor='black')
+plt.hist(high_volatility, bins=15, alpha=0.5, label='High Volatility', color='red', edgecolor='black')
+plt.axvline(low_volatility.mean(), color='green', linestyle='--', linewidth=2)
+plt.axvline(high_volatility.mean(), color='red', linestyle='--', linewidth=2)
+plt.xlabel('Returns (%)')
+plt.ylabel('Frequency')
+plt.title('Return Distribution by Volatility', fontsize=12, fontweight='bold')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Decision
+alpha = 0.05
+print("\n" + "="*60)
+print("HYPOTHESIS TESTING DECISION")
+print("="*60)
+print(f"Significance Level (α): {alpha}")
+
+if p_value < alpha:
+    print("\n REJECT NULL HYPOTHESIS (H₀)")
+    print("There IS a significant difference in returns between volatility levels.")
+    if high_volatility.mean() < low_volatility.mean():
+        print("\n High volatility periods have LOWER returns on average.")
+    else:
+        print("\n High volatility periods have HIGHER returns on average.")
+else:
+    print("\n FAIL TO REJECT NULL HYPOTHESIS (H₀)")
+    print("There is NO significant difference in returns between volatility levels.")
+
+# ============================================
+# HYPOTHESIS TEST 3: Model Performance Comparison
+# ============================================
+from sklearn.model_selection import cross_val_score
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from scipy import stats
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+print("="*60)
+print("HYPOTHESIS TEST 3: Model Performance Comparison")
+print("="*60)
+
+# Prepare data
+X = ml_data[['Open', 'High', 'Low', 'Close_Lag_1', 'MA_3']]
+y = ml_data['Close']
+
+# Cross-validation for both models
+cv_folds = 10
+
+# Linear Regression
+lr_model = LinearRegression()
+lr_scores = cross_val_score(lr_model, X, y, cv=cv_folds, scoring='r2')
+
+# Random Forest
+rf_model = RandomForestRegressor(n_estimators=50, random_state=42)
+rf_scores = cross_val_score(rf_model, X, y, cv=cv_folds, scoring='r2')
+
+print(f"\n CROSS-VALIDATION RESULTS ({cv_folds}-fold):")
+print("\nLinear Regression Scores:")
+print(f"  Individual: {[f'{s:.3f}' for s in lr_scores]}")
+print(f"  Mean R²: {lr_scores.mean():.4f}")
+print(f"  Std Dev: {lr_scores.std():.4f}")
+
+print("\nRandom Forest Scores:")
+print(f"  Individual: {[f'{s:.3f}' for s in rf_scores]}")
+print(f"  Mean R²: {rf_scores.mean():.4f}")
+print(f"  Std Dev: {rf_scores.std():.4f}")
+
+# Perform paired t-test (scores are paired by fold)
+t_stat, p_value = stats.ttest_rel(lr_scores, rf_scores)
+
+print(f"\n STATISTICAL TEST RESULTS:")
+print(f"T-Statistic: {t_stat:.4f}")
+print(f"P-Value: {p_value:.6f}")
+print(f"Mean Difference (RF - LR): {rf_scores.mean() - lr_scores.mean():.4f}")
+
+# Visualize
+plt.figure(figsize=(15, 5))
+
+plt.subplot(1, 3, 1)
+models = ['Linear Regression', 'Random Forest']
+mean_scores = [lr_scores.mean(), rf_scores.mean()]
+std_scores = [lr_scores.std(), rf_scores.std()]
+bars = plt.bar(models, mean_scores, yerr=std_scores, capsize=5, 
+               color=['#3498db', '#2ecc71'], edgecolor='black')
+plt.ylabel('R² Score')
+plt.title('Model Performance Comparison', fontsize=12, fontweight='bold')
+plt.ylim(0, 1)
+for bar, score in zip(bars, mean_scores):
+    plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01, 
+             f'{score:.3f}', ha='center', fontsize=10, fontweight='bold')
+plt.grid(True, alpha=0.3)
+
+plt.subplot(1, 3, 2)
+plt.boxplot([lr_scores, rf_scores], labels=['Linear Regression', 'Random Forest'], patch_artist=True)
+plt.ylabel('R² Score')
+plt.title('Cross-Validation Score Distribution', fontsize=12, fontweight='bold')
+plt.grid(True, alpha=0.3)
+
+plt.subplot(1, 3, 3)
+fold_difference = rf_scores - lr_scores
+plt.bar(range(1, cv_folds+1), fold_difference, color='purple', edgecolor='black')
+plt.axhline(y=0, color='red', linestyle='--', linewidth=2)
+plt.xlabel('Fold Number')
+plt.ylabel('R² Difference (RF - LR)')
+plt.title('Performance Difference per Fold', fontsize=12, fontweight='bold')
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Decision
+alpha = 0.05
+print("\n" + "="*60)
+print("HYPOTHESIS TESTING DECISION")
+print("="*60)
+print(f"Significance Level (α): {alpha}")
+
+if p_value < alpha and rf_scores.mean() > lr_scores.mean():
+    print("\n REJECT NULL HYPOTHESIS (H₀)")
+    print("Random Forest performs SIGNIFICANTLY better than Linear Regression.")
+    print(f"P-value = {p_value:.6f} is less than {alpha}")
+    print(f"R² Improvement: {(rf_scores.mean() - lr_scores.mean()) * 100:.2f}%")
+elif p_value < alpha:
+    print("\n REJECT NULL HYPOTHESIS (H₀)")
+    print("There IS a significant difference, but Linear Regression performs better.")
+else:
+    print("\n FAIL TO REJECT NULL HYPOTHESIS (H₀)")
+    print("No significant difference in performance between models.")
+
+# Handling Missing Values & Missing Value Imputation
+print("HANDLING MISSING VALUES")
+
+missing_before = ml_data.isnull().sum().sum()
+print(f"Missing values before: {missing_before}")
+
+missing_after = ml_data.isnull().sum().sum()
+print(f"Missing values after: {missing_after}")
+
+if missing_after == 0:
+    print("No missing values in the dataset!")
+else:
+    print(f"Still have {missing_after} missing values")
+
+# Handling Outliers & Outlier treatments
+print("HANDLING OUTLIERS")
+
+def detect_outliers_iqr(data, column):
+    Q1 = data[column].quantile(0.25)
+    Q3 = data[column].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    outliers = data[(data[column] < lower_bound) | (data[column] > upper_bound)]
+    return len(outliers), lower_bound, upper_bound
+
+outliers_count, lb, ub = detect_outliers_iqr(ml_data, 'Close')
+print(f"Outliers in Close price: {outliers_count} out of {len(ml_data)}")
+print(f"Lower bound: {lb:.2f}, Upper bound: {ub:.2f}")
+
+# Encode your categorical columns
+print("CATEGORICAL ENCODING")
+
+categorical_cols = ml_data.select_dtypes(include=['object', 'category']).columns
+print(f"Categorical columns: {categorical_cols.tolist()}")
+
+month_mapping = {
+    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4,
+    'May': 5, 'Jun': 6, 'Jul': 7, 'Aug': 8,
+    'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+}
+
+ml_data['Month_Num'] = ml_data['Month_Name'].map(month_mapping)
+
+
+# ============================================
+# EXPAND CONTRACTIONS (For reference)
+# ============================================
+def expand_contractions(text):
+    """
+    Expand contractions in text.
+    Example: "don't" → "do not", "can't" → "cannot"
+    """
+    contractions = {
+        "don't": "do not",
+        "can't": "cannot",
+        "won't": "will not",
+        "i'm": "i am",
+        "you're": "you are",
+        "he's": "he is",
+        "she's": "she is",
+        "it's": "it is",
+        "we're": "we are",
+        "they're": "they are",
+        "isn't": "is not",
+        "aren't": "are not",
+        "wasn't": "was not",
+        "weren't": "were not",
+        "hasn't": "has not",
+        "haven't": "have not",
+        "hadn't": "had not",
+        "doesn't": "does not",
+        "don't": "do not",
+        "didn't": "did not",
+        "won't": "will not",
+        "wouldn't": "would not",
+        "couldn't": "could not",
+        "shouldn't": "should not",
+        "mightn't": "might not",
+        "mustn't": "must not"
+    }
+    
+    for contraction, expanded in contractions.items():
+        text = text.replace(contraction, expanded)
+    return text
+
+# Example
+sample_text = "I don't think the bank's performance is good"
+expanded = expand_contractions(sample_text)
+print(f"Original: {sample_text}")
+print(f"Expanded: {expanded}")
+
+
+# ============================================
+# LOWER CASING (For reference)
+# ============================================
+def lower_case(text):
+    """
+    Convert text to lowercase for consistency.
+    Example: "YES Bank Stock" → "yes bank stock"
+    """
+    return text.lower()
+
+# Example
+sample_text = "Yes Bank Stock Price Analysis"
+lowercased = lower_case(sample_text)
+print(f"Original: {sample_text}")
+print(f"Lowercased: {lowercased}")
+
+
+# ============================================
+# REMOVING PUNCTUATIONS (For reference)
+# ============================================
+import re
+
+def remove_punctuation(text):
+    """
+    Remove punctuation marks from text.
+    Example: "Yes Bank's stock price!" → "Yes Banks stock price"
+    """
+    # Keep letters, numbers, and spaces
+    return re.sub(r'[^\w\s]', '', text)
+
+# Example
+sample_text = "Yes Bank's stock price! Is it going up?"
+cleaned = remove_punctuation(sample_text)
+print(f"Original: {sample_text}")
+print(f"Cleaned: {cleaned}")
+
+# ============================================
+# REMOVING URLS & DIGIT WORDS (For reference)
+# ============================================
+import re
+
+def remove_urls_and_digits(text):
+    """
+    Remove URLs and words containing digits.
+    Example: "Check https://example.com for stock2020 price" → "Check for stock price"
+    """
+    # Remove URLs
+    text = re.sub(r'http\S+|www\S+|https\S+', '', text)
+    
+    # Remove words containing digits
+    text = re.sub(r'\b\w*\d\w*\b', '', text)
+    
+    # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
+# Example
+sample_text = "Check https://example.com for stock2020 price and stock123 updates"
+cleaned = remove_urls_and_digits(sample_text)
+print(f"Original: {sample_text}")
+print(f"Cleaned: {cleaned}")
+
+# ============================================
+# REMOVING STOPWORDS & WHITE SPACES (For reference)
+# ============================================
+import re
+
+# Sample stopwords (in practice, use NLTK stopwords)
+STOPWORDS = {
+    'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves',
+    'you', "you're", "you've", "you'll", "you'd", 'your', 'yours',
+    'he', 'him', 'his', 'himself', 'she', "she's", 'her', 'hers',
+    'it', "it's", 'its', 'itself', 'they', 'them', 'their', 'theirs',
+    'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing',
+    'a', 'an', 'the', 'and', 'but', 'or', 'for', 'nor', 'on',
+    'at', 'to', 'by', 'in', 'of', 'off', 'on', 'so', 'up',
+    'yet', 'about', 'above', 'across', 'after', 'against',
+    'along', 'among', 'around', 'at', 'before', 'behind',
+    'below', 'beneath', 'beside', 'between', 'beyond'
+}
+
+def remove_stopwords(text):
+    """
+    Remove stopwords from text.
+    Example: "The stock price is going up" → "stock price going"
+    """
+    words = text.split()
+    filtered_words = [w for w in words if w.lower() not in STOPWORDS]
+    return ' '.join(filtered_words)
+    
+    # Example
+sample_text = "The stock price is going up significantly this month"
+no_stopwords = remove_stopwords(sample_text)
+print(f"Original: {sample_text}")
+
+
+def remove_extra_spaces(text):
+    """
+    Remove extra spaces from text.
+    Example: "The   stock  price  is  going  up" → "The stock price is going up"
+    """
+    return re.sub(r'\s+', ' ', text).strip()
+    
+no_spaces = remove_extra_spaces(no_stopwords)
+print(f"After processing: {no_spaces}")
+
+# ============================================
+# REPHRASE TEXT (For reference)
+# ============================================
+def rephrase_text(text):
+    """
+    Simple rephrasing using word replacement.
+    This is a basic example - advanced rephrasing uses neural networks.
+    """
+    synonyms = {
+        'good': 'great',
+        'bad': 'poor',
+        'increased': 'rose',
+        'decreased': 'fell',
+        'high': 'elevated',
+        'low': 'reduced'
+    }
+    
+    for word, synonym in synonyms.items():
+        text = text.replace(word, synonym)
+    return text
+
+# Example
+sample_text = "The stock price increased significantly and reached a high level"
+rephrased = rephrase_text(sample_text)
+print(f"Original: {sample_text}")
+print(f"Rephrased: {rephrased}")
+
+# ============================================
+# TOKENIZATION (For reference)
+# ============================================
+def word_tokenize(text):
+    """
+    Split text into words (simple tokenization).
+    Example: "The stock price is going up" → ["The", "stock", "price", "is", "going", "up"]
+    """
+    return text.split()
+
+def sentence_tokenize(text):
+    """
+    Split text into sentences.
+    Example: "The stock went up. The market is bullish." → ["The stock went up.", "The market is bullish."]
+    """
+    # Simple sentence splitting by period
+    sentences = text.split('.')
+    return [s.strip() for s in sentences if s.strip()]
+
+# Example
+sample_text = "The stock price is going up. The market is bullish."
+words = word_tokenize(sample_text)
+sentences = sentence_tokenize(sample_text)
+
+print(f"Original: {sample_text}")
+print(f"Word Tokens: {words}")
+print(f"Sentence Tokens: {sentences}")
+
+# ============================================
+# TEXT NORMALIZATION (For reference)
+# ============================================
+# This is for demonstration - NOT needed for our dataset
+
+def lemmatize_text(words):
+    """
+    Lemmatization - reduces words to dictionary form.
+    Example: ["running", "better", "stocks"] → ["run", "good", "stock"]
+    """
+    # Note: In practice, use NLTK WordNetLemmatizer
+    # For demonstration, we'll use a simple mapping
+    lemmatized = {
+        'running': 'run',
+        'better': 'good',
+        'stocks': 'stock',
+        'prices': 'price'
+    }
+    return [lemmatized.get(w, w) for w in words]
+
+# Example
+sample_words = ['running', 'better', 'stocks', 'prices']
+lemmatized = lemmatize_text(sample_words)
+print(f"Original: {sample_words}")
+print(f"Lemmatized: {lemmatized}")
+
+# ============================================
+# PART OF SPEECH TAGGING (For reference)
+# ============================================
+def pos_tagging_example(words):
+    """
+    POS tagging example (simplified).
+    In practice, use NLTK or spaCy for accurate POS tagging.
+    """
+    # Simplified POS mapping (for demonstration)
+    pos_map = {
+        'stock': 'NN',  # Noun
+        'price': 'NN',   # Noun
+        'going': 'VBG',  # Verb
+        'up': 'RB',     # Adverb
+        'market': 'NN',  # Noun
+        'bullish': 'JJ'  # Adjective
+    }
+    
+    tagged = []
+    for word in words:
+        tag = pos_map.get(word.lower(), 'NN')  # Default to noun
+        tagged.append((word, tag))
+    return tagged
+
+# Example
+sample_words = ['stock', 'price', 'going', 'up', 'market', 'bullish']
+tagged = pos_tagging_example(sample_words)
+print("POS Tagging Results:")
+for word, tag in tagged:
+    print(f"  {word}: {tag}")
+
+# ============================================
+# TEXT VECTORIZATION (For reference)
+# ============================================
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# This is for demonstration - NOT needed for our dataset
+def vectorize_text_example(texts):
+    """
+    TF-IDF Vectorization example.
+    Converts text documents to numerical feature vectors.
+    """
+    vectorizer = TfidfVectorizer(
+        max_features=1000,      # Use top 1000 features
+        stop_words='english',   # Remove common English words
+        ngram_range=(1, 2)      # Use unigrams and bigrams
+    )
+    
+    X = vectorizer.fit_transform(texts)
+    return X, vectorizer.get_feature_names_out()
+
+# Example documents
+sample_texts = [
+    "The stock price increased significantly",
+    "Market is bullish with strong growth",
+    "Stock price decreased due to market conditions"
+]
+
+X, feature_names = vectorize_text_example(sample_texts)
+print(f"Vectorized shape: {X.shape}")
+print(f"Feature names: {feature_names[:5]}...")
+
+# ============================================
+# FEATURE MANIPULATION
+# ============================================
+print("="*60)
+print("FEATURE MANIPULATION")
+print("="*60)
+
+# Original features
+print("Original Features:")
+print(ml_data[['Open', 'High', 'Low', 'Close']].head())
+
+# 1. Creating ratios (less correlated features)
+ml_data['Open_Close_Ratio'] = ml_data['Open'] / ml_data['Close']
+ml_data['High_Low_Ratio'] = ml_data['High'] / ml_data['Low']
+ml_data['Close_Open_Spread'] = ml_data['Close'] - ml_data['Open']
+
+# 2. Creating interaction features
+ml_data['Open_High_Interaction'] = ml_data['Open'] * ml_data['High']
+ml_data['Low_Close_Interaction'] = ml_data['Low'] * ml_data['Close']
+
+# 3. Creating polynomial features
+ml_data['Close_Squared'] = ml_data['Close'] ** 2
+ml_data['Open_Squared'] = ml_data['Open'] ** 2
+
+# 4. Creating percentage features
+ml_data['Open_Percent'] = (ml_data['Open'] / ml_data['Close']) * 100
+ml_data['High_Percent'] = (ml_data['High'] / ml_data['Close']) * 100
+ml_data['Low_Percent'] = (ml_data['Low'] / ml_data['Close']) * 100
+
+print("\n Feature Manipulation Complete!")
+print(f"New features added: Open_Close_Ratio, High_Low_Ratio, Close_Open_Spread")
+print(f"Interaction features: Open_High_Interaction, Low_Close_Interaction")
+print(f"Polynomial features: Close_Squared, Open_Squared")
+print(f"Percentage features: Open_Percent, High_Percent, Low_Percent")
+
+
+
+# ============================================
+# FEATURE SELECTION
+# ============================================
+from sklearn.feature_selection import SelectKBest, f_regression, RFE
+from sklearn.ensemble import RandomForestRegressor
+
+print("="*60)
+print("FEATURE SELECTION")
+print("="*60)
+
+# Prepare features
+X = ml_data[['Open', 'High', 'Low', 'Close_Lag_1', 
+             'Open_Close_Ratio', 'High_Low_Ratio', 'Close_Squared']]
+y = ml_data['Close']
+
+# Method 1: Correlation-based selection
+correlations = X.corrwith(y).sort_values(ascending=False)
+print("\n Method 1: Correlation with Target")
+print("-" * 40)
+for feature, corr in correlations.head(10).items():
+    print(f"{feature}: {corr:.4f}")
+
+# Method 2: SelectKBest (Top 5 features)
+selector = SelectKBest(score_func=f_regression, k=5)
+selector.fit(X, y)
+selected_features = X.columns[selector.get_support()]
+print("\n Method 2: SelectKBest (Top 5 Features)")
+print("-" * 40)
+for feature in selected_features:
+    print(f"{feature} (Score: {selector.scores_[X.columns.get_loc(feature)]:.2f})")
+
+# Method 3: RFE (Recursive Feature Elimination)
+rf_model = RandomForestRegressor(n_estimators=50, random_state=42)
+rfe_selector = RFE(estimator=rf_model, n_features_to_select=5)
+rfe_selector.fit(X, y)
+rfe_features = X.columns[rfe_selector.support_]
+print("\n Method 3: RFE (Top 5 Features)")
+print("-" * 40)
+for feature in rfe_features:
+    print(f"{feature} (Rank: {rfe_selector.ranking_[X.columns.get_loc(feature)]})")
+
+# Method 4: Feature Importance from Random Forest
+rf_model.fit(X, y)
+importance_df = pd.DataFrame({
+    'Feature': X.columns,
+    'Importance': rf_model.feature_importances_
+}).sort_values('Importance', ascending=False)
+print("\n Method 4: Random Forest Feature Importance")
+print("-" * 40)
+for i, row in importance_df.iterrows():
+    print(f"{row['Feature']}: {row['Importance']*100:.2f}%")
+
+# Final selected features (consensus)
+print("\n" + "="*60)
+print("FINAL SELECTED FEATURES (Consensus)")
+print("="*60)
+final_features = ['Close_Lag_1', 'Open', 'High', 'Low']
+print("Selected Features:", final_features)
+print("Number of features:", len(final_features))
+
+
+# Scaling your data
+print("\nData range before scaling:")
+sample_cols = ['Open', 'High', 'Low', 'Close']
+for col in sample_cols:
+    print(f"{col}: min={ml_data[col].min():.2f}, max={ml_data[col].max():.2f}")
+
+# Split your data to train and test. Choose Splitting ratio wisely.
+print("DATA SPLITTING")
+
+# Prepare final features and target
+final_features = [col for col in ml_data.columns if col not in ['Close', 'Date', 'Month_Name']]
+X = ml_data[final_features]
+y = ml_data['Close']
+
+print(f"Total features: {X.shape[1]}")
+print(f"Total samples: {X.shape[0]}")
+
+# Split data: 80% train, 20% test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+print(f"\nSplit Results:")
+print(f"Training set: {len(X_train)} samples ({len(X_train)/len(X)*100:.1f}%)")
+print(f"Test set: {len(X_test)} samples ({len(X_test)/len(X)*100:.1f}%)")
+
+# ============================================
+# ML Model - 1 Linear Regression
+# ============================================
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Create and train model
+lr_model = LinearRegression()
+lr_model.fit(X_train_scaled, y_train)
+
+# Make predictions
+y_train_pred_lr = lr_model.predict(X_train_scaled)
+y_test_pred_lr = lr_model.predict(X_test_scaled)
+
+# Evaluate model
+def evaluate_model(y_true, y_pred, model_name="Model"):
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_true, y_pred)
+    r2 = r2_score(y_true, y_pred)
+    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    
+    print(f"\n{model_name} Performance:")
+    print("-" * 40)
+    print(f"MSE: {mse:.4f}")
+    print(f"RMSE: {rmse:.4f}")
+    print(f"MAE: {mae:.4f}")
+    print(f"R² Score: {r2:.4f}")
+    print(f"MAPE: {mape:.2f}%")
+    
+    return {'MSE': mse, 'RMSE': rmse, 'MAE': mae, 'R2': r2, 'MAPE': mape}
+
+# Training performance
+train_metrics_lr = evaluate_model(y_train, y_train_pred_lr, "Linear Regression (Training)")
+
+# Test performance
+test_metrics_lr = evaluate_model(y_test, y_test_pred_lr, "Linear Regression (Test)")
+
+# ============================================
+# ML Model - 1 Implementation with hyperparameter optimization techniques (i.e., GridSearch CV, RandomSearch CV, Bayesian Optimization etc.)
+# ============================================
+
+cv_scores_lr = cross_val_score(lr_model, X_train_scaled, y_train, cv=5, scoring='r2')
+print(f"Cross-Validation R² Scores: {cv_scores_lr}")
+print(f"CV Mean R²: {cv_scores_lr.mean():.4f} (+/- {cv_scores_lr.std() * 2:.4f})")
+
+# ============================================
+# ML Model - 2 Random Forest Regression
+# ============================================
+
+# Visualizing evaluation Metric Score chart
+# Create and train model
+rf_model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+rf_model.fit(X_train_scaled, y_train)
+
+# Make predictions
+y_train_pred_rf = rf_model.predict(X_train_scaled)
+y_test_pred_rf = rf_model.predict(X_test_scaled)
+
+# Evaluate model
+train_metrics_rf = evaluate_model(y_train, y_train_pred_rf, "Random Forest (Training)")
+test_metrics_rf = evaluate_model(y_test, y_test_pred_rf, "Random Forest (Test)")
+
+# Feature Importance
+feature_importance = pd.DataFrame({
+    'Feature': X_train.columns,
+    'Importance': rf_model.feature_importances_
+}).sort_values('Importance', ascending=False)
+
+print("\n" + "="*50)
+print("TOP 10 MOST IMPORTANT FEATURES:")
+print("-" * 40)
+print(feature_importance.head(10))
+
+# Visualize feature importance
+plt.figure(figsize=(6, 4))
+sns.barplot(data=feature_importance.head(10), x='Importance', y='Feature')
+plt.title('Top 10 Most Important Features - Random Forest', fontsize=14, fontweight='bold')
+plt.xlabel('Feature Importance', fontsize=12)
+plt.tight_layout()
+plt.show()
+
+# ============================================
+# ML Model - 2 Implementation with hyperparameter optimization techniques (i.e., GridSearch CV, RandomSearch CV, Bayesian Optimization etc.)
+# ============================================
+
+# Cross-validation before tuning
+cv_scores_rf = cross_val_score(rf_model, X_train_scaled, y_train, cv=5, scoring='r2')
+print(f"Before Tuning - CV R² Scores: {cv_scores_rf}")
+print(f"CV Mean R²: {cv_scores_rf.mean():.4f} (+/- {cv_scores_rf.std() * 2:.4f})")
+
+# Hyperparameter Tuning with GridSearchCV
+print("\n" + "-"*50)
+print("Hyperparameter Tuning with GridSearchCV:")
+print("-" * 40)
+
+param_grid = {
+    'n_estimators': [50, 100, 200],
+    'max_depth': [10, 20, 30, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4]
+}
+
+print("Parameter grid:")
+print(param_grid)
+print("\nSearching for best parameters... (This may take a few minutes)")
+
+rf_grid = GridSearchCV(RandomForestRegressor(random_state=42), 
+                       param_grid, cv=5, scoring='r2', n_jobs=-1)
+rf_grid.fit(X_train_scaled, y_train)
+
+print(f"\n Best Parameters: {rf_grid.best_params_}")
+print(f"Best CV Score: {rf_grid.best_score_:.4f}")
+
+# Use best model for predictions
+best_rf = rf_grid.best_estimator_
+y_train_pred_tuned = best_rf.predict(X_train_scaled)
+y_test_pred_tuned = best_rf.predict(X_test_scaled)
+
+# Evaluate tuned model
+train_metrics_tuned = evaluate_model(y_train, y_train_pred_tuned, "Tuned Random Forest (Training)")
+test_metrics_tuned = evaluate_model(y_test, y_test_pred_tuned, "Tuned Random Forest (Test)")
+
+# Cross-validation after tuning
+cv_scores_tuned = cross_val_score(best_rf, X_train_scaled, y_train, cv=5, scoring='r2')
+print(f"\nAfter Tuning - CV R² Scores: {cv_scores_tuned}")
+print(f"CV Mean R²: {cv_scores_tuned.mean():.4f} (+/- {cv_scores_tuned.std() * 2:.4f})")
+
+# Improvement comparison
+print("\n" + "="*50)
+print("IMPROVEMENT SUMMARY")
+print("-" * 40)
+print(f"Before Tuning - CV R²: {cv_scores_rf.mean():.4f}")
+print(f"After Tuning  - CV R²: {cv_scores_tuned.mean():.4f}")
+print(f"Improvement: {(cv_scores_tuned.mean() - cv_scores_rf.mean()) * 100:.2f}%")
+
+# ============================================
+# ML Model - 3 Decision Tree Regression
+# ============================================
+
+# Create and train model
+dt_model = DecisionTreeRegressor(random_state=42, max_depth=10)
+dt_model.fit(X_train_scaled, y_train)
+
+# Make predictions
+y_train_pred_dt = dt_model.predict(X_train_scaled)
+y_test_pred_dt = dt_model.predict(X_test_scaled)
+
+# Evaluate model
+train_metrics_dt = evaluate_model(y_train, y_train_pred_dt, "Decision Tree (Training)")
+test_metrics_dt = evaluate_model(y_test, y_test_pred_dt, "Decision Tree (Test)")
+
+# Hyperparameter Tuning for Decision Tree
+print("\n" + "-"*50)
+print("Hyperparameter Tuning - Decision Tree:")
+print("-" * 40)
+
+dt_param_grid = {
+    'max_depth': [5, 10, 20, None],
+    'min_samples_split': [2, 5, 10],
+    'min_samples_leaf': [1, 2, 4]
+}
+
+dt_grid = GridSearchCV(DecisionTreeRegressor(random_state=42), 
+                       dt_param_grid, cv=5, scoring='r2', n_jobs=-1)
+dt_grid.fit(X_train_scaled, y_train)
+
+print(f" Best Parameters: {dt_grid.best_params_}")
+print(f" Best CV Score: {dt_grid.best_score_:.4f}")
+
+# Use best model
+best_dt = dt_grid.best_estimator_
+y_test_pred_dt_tuned = best_dt.predict(X_test_scaled)
+test_metrics_dt_tuned = evaluate_model(y_test, y_test_pred_dt_tuned, "Tuned Decision Tree (Test)")
+
+# ============================================
+# ML Model - 3 Implementation with hyperparameter optimization techniques (i.e., GridSearch CV, RandomSearch CV, Bayesian Optimization etc.)
+# ============================================
+# Prepare data for comparison
+models = ['Linear Regression', 'Random Forest', 'Tuned Random Forest', 'Decision Tree']
+r2_scores = [test_metrics_lr['R2'], test_metrics_rf['R2'], 
+             test_metrics_tuned['R2'], test_metrics_dt_tuned['R2']]
+rmse_scores = [test_metrics_lr['RMSE'], test_metrics_rf['RMSE'], 
+               test_metrics_tuned['RMSE'], test_metrics_dt_tuned['RMSE']]
+mape_scores = [test_metrics_lr['MAPE'], test_metrics_rf['MAPE'], 
+               test_metrics_tuned['MAPE'], test_metrics_dt_tuned['MAPE']]
+
+# Create comparison plots
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+# R² Comparison
+colors = ['skyblue', 'lightgreen', 'green', 'orange']
+bars = axes[0].bar(models, r2_scores, color=colors, edgecolor='black')
+axes[0].set_title('Model R² Score Comparison', fontsize=14, fontweight='bold')
+axes[0].set_ylabel('R² Score', fontsize=12)
+axes[0].set_ylim(0, 1)
+axes[0].axhline(y=0.8, color='red', linestyle='--', label='Good Performance Threshold')
+axes[0].legend()
+for bar, score in zip(bars, r2_scores):
+    axes[0].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02, 
+                 f'{score:.3f}', ha='center', fontsize=10)
+
+# RMSE Comparison
+bars = axes[1].bar(models, rmse_scores, color=colors, edgecolor='black')
+axes[1].set_title('RMSE Comparison (Lower is Better)', fontsize=14, fontweight='bold')
+axes[1].set_ylabel('RMSE (₹)', fontsize=12)
+for bar, score in zip(bars, rmse_scores):
+    axes[1].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
+                 f'₹{score:.2f}', ha='center', fontsize=10)
+
+# MAPE Comparison
+bars = axes[2].bar(models, mape_scores, color=colors, edgecolor='black')
+axes[2].set_title('MAPE Comparison (Lower is Better)', fontsize=14, fontweight='bold')
+axes[2].set_ylabel('MAPE (%)', fontsize=12)
+for bar, score in zip(bars, mape_scores):
+    axes[2].text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
+                 f'{score:.1f}%', ha='center', fontsize=10)
+
+plt.tight_layout()
+plt.show()
+
+# Create a comparison table
+comparison_df = pd.DataFrame({
+    'Model': models,
+    'R² Score': r2_scores,
+    'RMSE (₹)': rmse_scores,
+    'MAPE (%)': mape_scores
+})
+
+print("\n" + "="*50)
+print("MODEL COMPARISON TABLE")
+print("-" * 40)
+print(comparison_df.to_string(index=False))
+
+
